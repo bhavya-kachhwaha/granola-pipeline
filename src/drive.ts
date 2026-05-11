@@ -8,6 +8,7 @@ dotenv.config();
 
 const TOKEN_PATH = path.join(process.cwd(), "token.json");
 const COMPANY_DOMAIN = "ria.insure";
+const ROOT_FOLDER_NAME = "Meeting Notes";
 
 function getAuthClient() {
   const oauth2Client = new google.auth.OAuth2(
@@ -18,6 +19,74 @@ function getAuthClient() {
   const token = JSON.parse(fs.readFileSync(TOKEN_PATH, "utf-8"));
   oauth2Client.setCredentials(token);
   return oauth2Client;
+}
+
+// find a folder by name inside a parent, or create it if it doesn't exist
+async function findOrCreateFolder(
+  drive: any,
+  name: string,
+  parentId?: string
+): Promise<string> {
+  const query = [
+    `name = '${name}'`,
+    `mimeType = 'application/vnd.google-apps.folder'`,
+    `trashed = false`,
+    parentId ? `'${parentId}' in parents` : "",
+  ]
+    .filter(Boolean)
+    .join(" and ");
+
+  const res = await drive.files.list({
+    q: query,
+    fields: "files(id, name)",
+  });
+
+  if (res.data.files && res.data.files.length > 0) {
+    return res.data.files[0].id;
+  }
+
+  // folder doesn't exist, create it
+  const createRes = await drive.files.create({
+    requestBody: {
+      name,
+      mimeType: "application/vnd.google-apps.folder",
+      parents: parentId ? [parentId] : [],
+    },
+    fields: "id",
+  });
+
+  // share the folder with @ria.insure
+  await drive.permissions.create({
+    fileId: createRes.data.id,
+    requestBody: {
+      role: "reader",
+      type: "domain",
+      domain: COMPANY_DOMAIN,
+    },
+  });
+
+  console.log(`   Created folder: ${name}`);
+  return createRes.data.id;
+}
+
+// get the month folder name from a date e.g. "2026-05"
+function getMonthFolder(dateStr: string): string {
+  const date = new Date(dateStr);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
+}
+
+// get or create the full folder path: Meeting Notes > 2026-05
+async function getTargetFolder(drive: any, meeting: EnrichedMeeting): Promise<string> {
+  // root folder
+  const rootId = await findOrCreateFolder(drive, ROOT_FOLDER_NAME);
+
+  // month subfolder
+  const monthName = getMonthFolder(meeting.createdAt);
+  const monthId = await findOrCreateFolder(drive, monthName, rootId);
+
+  return monthId;
 }
 
 interface TextSegment {
@@ -50,20 +119,34 @@ export async function createMeetingDoc(
   const docs = google.docs({ version: "v1", auth });
   const drive = google.drive({ version: "v3", auth });
 
-  // step 1 — create empty doc
+  // step 1 -- get the target folder
+  console.log("   Finding/creating folder structure...");
+  const folderId = await getTargetFolder(drive, meeting);
+
+  // step 2 -- create doc inside that folder
   const createResponse = await docs.documents.create({
     requestBody: {
-      title: `Meeting Notes: ${meeting.title} — ${new Date(
+      title: `Meeting Notes: ${meeting.title} -- ${new Date(
         meeting.createdAt
       ).toLocaleDateString("en-IN")}`,
     },
   });
 
   const docId = createResponse.data.documentId!;
+
+  // step 3 -- move doc into the folder
+  const existingParents = createResponse.data.revisionId;
+  await drive.files.update({
+    fileId: docId,
+    addParents: folderId,
+    removeParents: "root",
+    fields: "id, parents",
+  });
+
+  // step 4 -- build and insert content
   const requests: any[] = [];
   const segments = parseNotes(structuredNotes);
 
-  // build all lines
   const titleLine = `${meeting.title}\n`;
   const dateLine = `${new Date(meeting.createdAt).toLocaleDateString("en-IN", {
     weekday: "long",
@@ -98,15 +181,12 @@ export async function createMeetingDoc(
 
   const fullText = allLines.join("");
 
-  // insert all text in one request
   requests.push({
     insertText: { location: { index: 1 }, text: fullText },
   });
 
-  // track index and apply formatting
   let index = 1;
 
-  // title → Heading 1
   requests.push({
     updateParagraphStyle: {
       range: { startIndex: index, endIndex: index + titleLine.length },
@@ -115,17 +195,10 @@ export async function createMeetingDoc(
     },
   });
   index += titleLine.length;
-
-  // date line — advance only
   index += dateLine.length;
-
-  // attendee line — advance only
   if (attendeeLine) index += attendeeLine.length;
-
-  // blank line
   index += blankLine.length;
 
-  // summary heading → Heading 2
   requests.push({
     updateParagraphStyle: {
       range: { startIndex: index, endIndex: index + summaryHeading.length },
@@ -134,14 +207,9 @@ export async function createMeetingDoc(
     },
   });
   index += summaryHeading.length;
-
-  // summary text — advance only
   index += summaryText.length;
-
-  // blank line
   index += blankLine.length;
 
-  // format each structured note segment
   for (const seg of segments) {
     const lineLen = seg.text.length + 1;
 
@@ -182,10 +250,8 @@ export async function createMeetingDoc(
     index += lineLen;
   }
 
-  // blank line before transcript
   index += blankLine.length;
 
-  // transcript heading → Heading 2
   requests.push({
     updateParagraphStyle: {
       range: {
@@ -197,13 +263,12 @@ export async function createMeetingDoc(
     },
   });
 
-  // send all formatting in one batch
   await docs.documents.batchUpdate({
     documentId: docId,
     requestBody: { requests },
   });
 
-  // step 2 — share with everyone at ria.insure
+  // step 5 -- share with @ria.insure
   await drive.permissions.create({
     fileId: docId,
     requestBody: {
