@@ -3,6 +3,7 @@ import { getMeetings } from "./granola";
 import { enrichMeeting, generateStructuredNotes } from "./enrichment";
 import { createMeetingDoc } from "./drive";
 import { attachDocToCalendarEvent } from "./calendar";
+import { appendActionItems } from "./sheets";
 import * as fs from "fs";
 
 dotenv.config();
@@ -37,6 +38,9 @@ async function processMeeting(meeting: any) {
 
   console.log("   Step 4: Attaching to calendar event...");
   await attachDocToCalendarEvent(enriched, docUrl);
+
+  console.log("   Step 5: Adding action items to tracker...");
+  await appendActionItems(enriched, docUrl);
 
   console.log(`   ✓ Done → ${docUrl}`);
   return docUrl;
@@ -79,10 +83,8 @@ async function startPolling() {
   console.log(`🔍 Polling Granola API every ${POLL_INTERVAL_MINUTES} minutes...`);
   console.log("   Dots = checked, no new meetings. Ctrl+C to stop.\n");
 
-  // run immediately on start
   await runOnce();
 
-  // then poll every 2 minutes
   setInterval(async () => {
     await runOnce();
   }, POLL_INTERVAL_MINUTES * 60 * 1000);
