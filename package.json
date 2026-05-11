@@ -1,0 +1,27 @@
+{
+  "name": "granola-pipeline",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+  "dev": "tsx watch src/index.ts",
+  "start": "tsx src/index.ts",
+  "watch": "tsx src/index.ts"
+},
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@slack/web-api": "^7.15.2",
+    "dotenv": "^17.4.2",
+    "googleapis": "^171.4.0",
+    "groq-sdk": "^1.1.2"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.2",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3"
+  }
+}
