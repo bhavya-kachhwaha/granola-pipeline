@@ -36,7 +36,6 @@ async function getOrCreateSheet(sheets: any, drive: any): Promise<string> {
   const savedId = getSavedSheetId();
   if (savedId) return savedId;
 
-  // create the spreadsheet with header row
   const createRes = await sheets.spreadsheets.create({
     requestBody: {
       properties: { title: SHEET_NAME },
@@ -45,10 +44,9 @@ async function getOrCreateSheet(sheets: any, drive: any): Promise<string> {
 
   const sheetId = createRes.data.spreadsheetId;
 
-  // write header row
   await sheets.spreadsheets.values.update({
     spreadsheetId: sheetId,
-    range: "Sheet1!A1:H1",
+    range: "Sheet1!A1:J1",
     valueInputOption: "USER_ENTERED",
     requestBody: {
       values: [[
@@ -58,13 +56,14 @@ async function getOrCreateSheet(sheets: any, drive: any): Promise<string> {
         "Task",
         "Owner",
         "Deadline",
+        "Confidence",
+        "Confidence Reason",
         "Status",
         "Doc Link",
       ]],
     },
   });
 
-  // share with @ria.insure
   await drive.permissions.create({
     fileId: sheetId,
     requestBody: {
@@ -75,7 +74,9 @@ async function getOrCreateSheet(sheets: any, drive: any): Promise<string> {
   });
 
   saveSheetId(sheetId);
-  console.log(`   Created tracker: https://docs.google.com/spreadsheets/d/${sheetId}`);
+  console.log(
+    `   Created tracker: https://docs.google.com/spreadsheets/d/${sheetId}`
+  );
   return sheetId;
 }
 
@@ -107,17 +108,51 @@ export async function appendActionItems(
     item.task,
     item.owner || "unassigned",
     item.deadline || "--",
+    item.confidence || "medium",
+    item.confidence_reason || "--",
     "Pending",
     docUrl,
   ]);
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: sheetId,
-    range: "Sheet1!A:H",
+    range: "Sheet1!A:J",
     valueInputOption: "USER_ENTERED",
     requestBody: { values: rows },
   });
 
   console.log(`   Added ${rows.length} action item(s) to tracker.`);
-  console.log(`   Sheet: https://docs.google.com/spreadsheets/d/${sheetId}`);
+  console.log(
+    `   Sheet: https://docs.google.com/spreadsheets/d/${sheetId}`
+  );
+}
+
+export async function getRecentActionItems(
+  sheets: any,
+  sheetId: string,
+  limit: number = 10
+): Promise<string> {
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: "Sheet1!A:J",
+    });
+
+    const rows = res.data.values || [];
+    if (rows.length <= 1) return "";
+
+    const dataRows = rows.slice(1).slice(-limit);
+    const pending = dataRows.filter((row: string[]) => row[8] === "Pending");
+
+    if (pending.length === 0) return "";
+
+    return pending
+      .map(
+        (row: string[]) =>
+          `- ${row[3]} (Owner: ${row[4]}, Deadline: ${row[5]}, From: ${row[1]})`
+      )
+      .join("\n");
+  } catch {
+    return "";
+  }
 }
