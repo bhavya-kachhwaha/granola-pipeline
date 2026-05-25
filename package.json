@@ -4,10 +4,10 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-  "dev": "tsx watch src/index.ts",
-  "start": "tsx src/index.ts",
-  "watch": "tsx src/index.ts"
-},
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "watch": "tsx src/index.ts"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
@@ -17,7 +17,8 @@
     "@slack/web-api": "^7.15.2",
     "dotenv": "^17.4.2",
     "googleapis": "^171.4.0",
-    "groq-sdk": "^1.1.2"
+    "groq-sdk": "^1.1.2",
+    "openai": "^6.38.0"
   },
   "devDependencies": {
     "@types/node": "^25.6.2",
